@@ -18,23 +18,31 @@
     [currencyFormatter setNumberStyle:NSNumberFormatterCurrencyStyle];
     [currencyFormatter setLocale:sk.priceLocale];
     result.localizedPrice = [currencyFormatter stringFromNumber:sk.price];
+    result.currency = [sk.priceLocale objectForKey:NSLocaleCurrencyCode];
     return result;
 }
 
 -(NSDictionary *) toDictionary
 {
     return @{@"productId": _productId ?: @"", @"title":_localizedTitle ?: @"", @"description": _localizedDescription ?: @"",
-             @"price:" : [NSNumber numberWithDouble:_price], @"localizedPrice": _localizedPrice ?: @""};
+             @"price" : [NSNumber numberWithDouble:_price], @"localizedPrice": _localizedPrice ?: @"", @"currency" : _currency ?: @""};
 }
 
 +(instancetype) fromDictionary:(NSDictionary *) dic
 {
     LDInAppProduct * result = [[LDInAppProduct alloc] init];
-    result.productId = [dic objectForKey:@"productId"];
-    result.localizedTitle = [dic objectForKey:@"title"];
-    result.localizedDescription = [dic objectForKey:@"description"];
-    result.localizedPrice = [dic objectForKey:@"localizedPrice"];
-    result.price = [[dic objectForKey:@"price"] doubleValue];
+    if (!dic || ![dic isKindOfClass:[NSDictionary class]]) {
+        dic = @{};
+    }
+    result.productId = [dic objectForKey:@"productId"] ?: @"";
+    result.localizedTitle = [dic objectForKey:@"title"] ?: @"";
+    result.localizedDescription = [dic objectForKey:@"description"] ?: @"";
+    result.localizedPrice = [dic objectForKey:@"localizedPrice"] ?: @"";
+    NSNumber * number = [dic objectForKey:@"price"];
+    if (number && [number isKindOfClass:[NSNumber class]]) {
+        result.price = [number doubleValue];
+    }
+    result.currency = [dic objectForKey:@"currency"] ?: @"";
     return result;
 }
 
@@ -73,14 +81,28 @@
     NSError * error = nil;
     if (response.invalidProductIdentifiers.count > 0) {
         NSString * msg = @"Invalid products: ";
-        for (NSString * pid in response.invalidProductIdentifiers) {
-            msg = [msg stringByAppendingString:pid];
-            msg = [msg stringByAppendingString:@","];
-        }
-        error = MAKE_ERROR(0, msg);
+	for (NSString * pid in response.invalidProductIdentifiers) {
+	    msg = [msg stringByAppendingString:pid];
+	    msg = [msg stringByAppendingString:@","];
+	}
+	error = MAKE_ERROR(0, msg);
     }
     _completion(response.products, error);
-    CFRelease((__bridge CFTypeRef)(self));
+    [self dispose:request];
+}
+
+- (void)request:(SKRequest *)request didFailWithError:(NSError *)error {
+    _completion(nil, error);
+    [self dispose:request];
+}
+
+- (void)dispose:(SKRequest*)request {
+      request.delegate = nil;
+      LDInAppFetchDelegate * this = self;
+      //simulate CFAutoRelease for iOS 6
+      dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+	  CFRelease((__bridge CFTypeRef)(this));
+      });
 }
 
 @end
@@ -553,10 +575,12 @@
 
 +(NSMutableArray *) loadProductsFromCache {
     
-    NSArray * array = [[NSUserDefaults standardUserDefaults] objectForKey:PRODUCTS_CACHE_KEY] ?: @[];
     NSMutableArray * result = [NSMutableArray array];
-    for (NSDictionary * dic in array) {
-        [result addObject:[LDInAppProduct fromDictionary:dic]];
+    NSArray * array = [[NSUserDefaults standardUserDefaults] objectForKey:PRODUCTS_CACHE_KEY] ?: @[];
+    if (array && [array isKindOfClass:[NSArray class]]) {
+        for (NSDictionary * dic in array) {
+            [result addObject:[LDInAppProduct fromDictionary:dic]];
+        }
     }
     return result;
 }

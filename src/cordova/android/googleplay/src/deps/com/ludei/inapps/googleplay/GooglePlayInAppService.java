@@ -49,16 +49,25 @@ public class GooglePlayInAppService extends AbstractInAppService
     }
 
     private IInAppBillingService mService;
+    private InitCompletion mServiceOnConnected;
     private ServiceConnection mServiceConn = new ServiceConnection() {
         @Override
         public void onServiceDisconnected(ComponentName name) {
             mService = null;
+            if (mServiceOnConnected != null) {
+                mServiceOnConnected.onInit(new Error(0, "Service Disconnected"));
+                mServiceOnConnected = null;
+            }
         }
 
         @Override
         public void onServiceConnected(ComponentName name,
                                        IBinder service) {
             mService = IInAppBillingService.Stub.asInterface(service);
+            if (mServiceOnConnected != null) {
+                mServiceOnConnected.onInit(null);
+                mServiceOnConnected = null;
+            }
         }
     };
     private String mPendingIntentProductId;
@@ -74,6 +83,22 @@ public class GooglePlayInAppService extends AbstractInAppService
         mContext.bindService(serviceIntent, mServiceConn, Context.BIND_AUTO_CREATE);
     }
 
+
+    @Override
+    public void init(InitCompletion callback)
+    {
+        if (callback == null) {
+            return;
+        }
+
+        if (mService != null) {
+            callback.onInit(null);
+        }
+        else {
+            mServiceOnConnected = callback;
+        }
+    }
+
     @Override
     public void onDestroy() {
         if (mService != null) {
@@ -81,51 +106,65 @@ public class GooglePlayInAppService extends AbstractInAppService
         }
     }
 
-    public void internalFetchProducts(List<String> productIds, final FetchCallback callback)
+    private InAppProduct JSONObjectToInapp(JSONObject object) {
+        InAppProduct product = new InAppProduct();
+
+        product.productId = object.optString("productId");
+        //String type = object.optString("type");
+        product.localizedPrice = object.optString("price");
+        product.title = object.optString("title");
+        product.description = object.optString("description");
+        String price;
+        if (object.has("price_amount_micros")) {
+            price = String.valueOf(((float) object.optInt("price_amount_micros")) / 1000000);
+
+        } else {
+            String tmpPrice = product.localizedPrice.replace(",", ".");
+            price = String.valueOf(tmpPrice.replace(',', '.').substring(0, tmpPrice.length() - 2));
+        }
+        product.price = new BigDecimal(price).doubleValue();
+        return product;
+    }
+
+    public void internalFetchProducts(final List<String> productIds, final FetchCallback callback)
     {
-        ArrayList<String> skuList = new ArrayList<String>(productIds);
-        final Bundle querySkus = new Bundle();
-        querySkus.putStringArrayList("ITEM_ID_LIST", skuList);
+
+        if (mService == null) {
+            callback.onComplete(null, new Error(0, "Service disconnected"));
+            return;
+        }
 
         runBackgroundTask(new Runnable() {
             @Override
             public void run() {
+                final int MAX_SKU = 20; //Google Play limit getSkuDetails
 
                 Error error = null;
                 final ArrayList<InAppProduct> products = new ArrayList<InAppProduct>();
 
-                try {
-                    Bundle skuDetails = mService.getSkuDetails(apiVersion, mContext.getPackageName(), "inapp", querySkus);
+                ArrayList<String> pids = new ArrayList<String>(productIds);
+                while (pids.size() > 0) {
+                    List<String> currentQuery = pids.size() <= MAX_SKU ? pids : pids.subList(0, MAX_SKU);
+                    Bundle querySkus = new Bundle();
+                    querySkus.putStringArrayList("ITEM_ID_LIST", new ArrayList<String>(currentQuery));
+                    currentQuery.clear();
 
-                    int response = skuDetails.getInt("RESPONSE_CODE");
-                    if (response == 0) {
-                        ArrayList<String> responseList = skuDetails.getStringArrayList("DETAILS_LIST");
+                    try {
+                        Bundle skuDetails = mService.getSkuDetails(apiVersion, mContext.getPackageName(), "inapp", querySkus);
 
-                        for (String productResponse : responseList) {
-                            JSONObject object = new JSONObject(productResponse);
-                            InAppProduct product = new InAppProduct();
+                        int response = skuDetails.getInt("RESPONSE_CODE");
+                        if (response == 0) {
+                            ArrayList<String> responseList = skuDetails.getStringArrayList("DETAILS_LIST");
 
-                            product.productId = object.getString("productId");
-                            String type = object.getString("type");
-                            product.localizedPrice = object.getString("price");
-                            product.title = object.getString("title");
-                            product.description = object.getString("description");
-                            String price;
-                            if (object.has("price_amount_micros")) {
-                                price = String.valueOf(((float) object.getInt("price_amount_micros")) / 1000000);
-
-                            } else {
-                                String tmpPrice = product.localizedPrice.replace(",", ".");
-                                price = String.valueOf(tmpPrice.replace(',', '.').substring(0, tmpPrice.length() - 2));
+                            for (String productResponse : responseList) {
+                                products.add(JSONObjectToInapp(new JSONObject(productResponse)));
                             }
-                            product.price = new BigDecimal(price).doubleValue();
-                            products.add(product);
+                        } else {
+                            error = new Error(response, Utils.getResponseDesc(response));
                         }
-                    } else {
-                        error = new Error(response, Utils.getResponseDesc(response));
+                    } catch (Exception ex) {
+                        error = new Error(0, ex.toString());
                     }
-                } catch (Exception ex) {
-                    error = new Error(0, ex.toString());
                 }
 
                 final Error finalError = error;
@@ -176,6 +215,14 @@ public class GooglePlayInAppService extends AbstractInAppService
 
     @Override
     public void purchase(final String productId, int quantity, final PurchaseCallback callback) {
+
+        if (mService == null) {
+            if (callback != null) {
+                callback.onComplete(null, new Error(0, "Service disconnected"));
+            }
+            return;
+        }
+
         if (callback != null) {
             mPurchaseCallbacks.put(productId, callback);
         }
@@ -221,6 +268,13 @@ public class GooglePlayInAppService extends AbstractInAppService
     @Override
     public void consume(final String productId, int quantity, final ConsumeCallback callback)
     {
+        if (mService == null) {
+            if (callback != null) {
+                callback.onComplete(0, new Error(0, "Service disconnected"));
+            }
+            return;
+        }
+
         fetchPurchases(productId, 0, new FetchPurchasesCallback() {
             @Override
             public void onCompleted(ArrayList<GPInAppPurchase> purchases, final Error error) {
@@ -404,6 +458,13 @@ public class GooglePlayInAppService extends AbstractInAppService
 
     @Override
     public void restorePurchases(final RestoreCallback callback) {
+        if (mService == null) {
+            if (callback != null) {
+                callback.onComplete(new Error(0, "Service disconnected"));
+            }
+            return;
+        }
+
         this.fetchPurchases(null, 0, new FetchPurchasesCallback() {
             @Override
             public void onCompleted(ArrayList<GPInAppPurchase> purchases, final Error error) {

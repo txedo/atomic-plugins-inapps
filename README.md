@@ -100,7 +100,14 @@ service.products; //local cached products
 
 See [API Documentation](http://ludei.github.io/atomic-plugins-inapps/dist/doc/android/html/annotated.html)
 
-See [`InAppTest`](test/android) for a complete project that tests all the features provided in the API.
+See [`InAppTest`](test/android) for a complete project that tests all the features provided in the API. In order to test Android In-Apps select the googlePlayRelelease or amazonRelease built variant in Android Studio. You must set your custom productIds in [`MainActivity.java`](test/android/InAppTest/testapp/src/main/java/com/ludei/inapptest/MainActivity.java) and set your bundleId and versionCode in the [`build.gradle`](test/android/InAppTest/testapp/build.gradle)
+
+You also have to configure your release signingConfig. Add these properties to your global gradle.properties file
+
+    STORE_FILE=/Users/user/.android/company.keystore
+    STORE_PASSWORD=xxxxx
+    KEY_ALIAS=xxxxxxx
+    KEY_PASSWORD=xxxxx
 
 ###Introduction 
 
@@ -186,11 +193,13 @@ public void onDestroy()
 
 ###API Reference
 
-See [API Documentation](http://ludei.github.io/atomic-plugins-inapps/dist/doc/js/Cocoon.InApp.html)
+See [API Documentation](http://ludei.github.io/cocoon-common/dist/doc/js/Cocoon.InApp.html)
 
 For a complete project that tests all the features provided in the API run the following command:
 
     gulp create-cordova
+
+A cordova project is created in test/cordova/InAppTest
 
 ###Introduction 
 
@@ -200,13 +209,12 @@ Cocoon.InApp class provides a multiplatform, easy to use and secure in-app purch
 
 Releases are deployed to Cordova Plugin Registry. You only have to install the desired plugins using Cordova CLI, CocoonJS CLI or Ludei's Cocoon Cloud Server.
 
-    cordova plugin add com.ludei.inapps.ios.appstore;
-    cordova plugin add com.ludei.inapps.android.googleplay;
-    cordova plugin add con.ludei.inapps.android.amazon;
+    cordova plugin add cocoon-plugin-inapps-ios-appstore;
+    cordova plugin add cocoon-plugin-inapps-android-googleplay;
+    cordova plugin add cocoon-plugin-inapps-android-amazon;
 
-Include the following JavaScript files in your html project:
+The following JavaScript file is included automatically:
 
-[`cocoon.js`](src/cordova/js/external/cocoon.js)
 [`cocoon_inapps.js`](src/cordova/js/cocoon_inapps.js)
 
 ###Example
@@ -313,6 +321,16 @@ public Cocos2dxGLSurfaceView onCreateView() {
     return surfaceView;
 }
 ```
+#####Signing a build for release
+
+Set your bundleId and versionCode in the [`build.gradle`](test/cpp/proj.android/app/build.gradle)
+
+You also have to configure your release signingConfig. Add these properties to your global gradle.properties file
+
+    STORE_FILE=/Users/user/.android/company.keystore
+    STORE_PASSWORD=xxxxx
+    KEY_ALIAS=xxxxxxx
+    KEY_PASSWORD=xxxxx
 
 ###Example
 
